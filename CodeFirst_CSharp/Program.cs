@@ -1,11 +1,14 @@
 using CodeFirstAPI.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
-using CodeFirstAPI.Middleware; // Added for FirebaseAuthMiddleware
-using Microsoft.AspNetCore.Authentication.JwtBearer; // Added for JWT Bearer
-using CodeFirstAPI.Services; // Added for FirebaseInitializer
+using CodeFirstAPI.Middleware;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using CodeFirstAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Initialize Firebase Admin SDK
+FirebaseInitializer.InitializeFirebase();
 
 // Swagger
 builder.Services.AddEndpointsApiExplorer();
@@ -36,10 +39,34 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
+// Configure Authentication Services
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    // For Firebase, token validation is primarily handled by FirebaseAuthMiddleware.
+    // This registration is to make the scheme known to ASP.NET Core.
+    options.Events = new JwtBearerEvents
+    {
+        OnAuthenticationFailed = context =>
+        {
+            Console.WriteLine("JWT Bearer Authentication Failed: " + context.Exception.Message);
+            return Task.CompletedTask;
+        },
+        OnTokenValidated = context =>
+        {
+            Console.WriteLine("JWT Bearer Token Validated (by scheme, pre-custom middleware).");
+            return Task.CompletedTask;
+        }
+    };
+});
 
-// PostgreSQL
+// Configure DbContext to use SQL Server
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddAuthorization();
 
@@ -54,14 +81,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
- app.UseHttpsRedirection();
+app.UseHttpsRedirection();
 
+// Configure the HTTP request pipeline.
+app.UseAuthentication();
 app.UseMiddleware<FirebaseAuthMiddleware>();
-
 app.UseAuthorization();
 
 app.MapControllers();
-
-CodeFirstAPI.Services.FirebaseInitializer.InitializeFirebase();
 
 app.Run();
